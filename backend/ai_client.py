@@ -180,20 +180,33 @@ def ask(question: str, history: list[dict] | None = None) -> dict:
     prior_user_texts = [h["content"] for h in safe_history if h["role"] == "user"]
     retrieval_query = " ".join(prior_user_texts[-1:] + [question])
 
-    try:
-        response = client.chat.completions.create(
-            model=_state["model"],
-            messages=[
-                {"role": "system", "content": SYSTEM_HEADER},
-                {"role": "system", "content": f"[지식창고]\n{build_knowledge_context(retrieval_query)}"},
-                *safe_history,
-                {"role": "user", "content": question},
-            ],
-            response_format={"type": "json_schema", "json_schema": RESPONSE_SCHEMA},
-        )
-    except groq.RateLimitError as e:
-        raise AIUnavailableError(RATE_LIMIT_MESSAGE) from e
-    except (groq.APITimeoutError, groq.APIConnectionError) as e:
-        raise AIUnavailableError("AI 서버 응답이 너무 늦어 요청을 취소했습니다. 다시 시도해주세요.") from e
+    messages = [
+        {"role": "system", "content": SYSTEM_HEADER},
+        {"role": "system", "content": f"[지식창고]\n{build_knowledge_context(retrieval_query)}"},
+        *safe_history,
+        {"role": "user", "content": question},
+    ]
 
-    return json.loads(response.choices[0].message.content)
+    # 모델이 가끔 JSON 스키마를 어기는 답변을 만들 때가 있어(특히 작은/저렴한 모델일수록),
+    # 한 번은 자동으로 재시도합니다 — 그래도 안 되면 사람 상담원 연결로 안내합니다.
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            response = client.chat.completions.create(
+                model=_state["model"],
+                messages=messages,
+                response_format={"type": "json_schema", "json_schema": RESPONSE_SCHEMA},
+            )
+            return json.loads(response.choices[0].message.content)
+        except groq.RateLimitError as e:
+            raise AIUnavailableError(RATE_LIMIT_MESSAGE) from e
+        except (groq.APITimeoutError, groq.APIConnectionError) as e:
+            raise AIUnavailableError("AI 서버 응답이 너무 늦어 요청을 취소했습니다. 다시 시도해주세요.") from e
+        except groq.BadRequestError as e:
+            last_error = e
+            continue
+
+    raise AIUnavailableError(
+        "AI가 답변 형식을 만드는데 실패했습니다. 다시 한 번 질문해주시거나, 계속되면 "
+        "기술지원팀(1577-6846)으로 문의해주세요."
+    ) from last_error
