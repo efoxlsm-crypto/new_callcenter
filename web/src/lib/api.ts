@@ -203,6 +203,9 @@ export async function fetchServerStatus(): Promise<ServerStatus> {
 
 export async function startBackendServer(): Promise<{ ok: boolean; already_running?: boolean }> {
   const res = await fetch("/api/start-backend", { method: "POST" });
-  if (!res.ok) throw new Error("백엔드 서버를 시작하지 못했습니다.");
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error || "백엔드 서버를 시작하지 못했습니다.");
+  }
   return res.json();
 }

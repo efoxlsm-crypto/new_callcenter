@@ -31,6 +31,7 @@ export default function SettingsPanel() {
   const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [startingBackend, setStartingBackend] = useState(false);
+  const [startBackendError, setStartBackendError] = useState<string | null>(null);
 
   const loadSettings = useCallback(() => {
     fetchSettings()
@@ -65,12 +66,15 @@ export default function SettingsPanel() {
 
   async function handleStartBackend() {
     setStartingBackend(true);
+    setStartBackendError(null);
     try {
       await startBackendServer();
       // 프로세스가 완전히 뜰 때까지 잠깐 기다렸다가 상태를 다시 확인하고, 설정 정보도 다시 불러옵니다.
       await new Promise((r) => setTimeout(r, 3000));
       await checkServerStatus();
       loadSettings();
+    } catch (e) {
+      setStartBackendError(e instanceof Error ? e.message : "백엔드 서버를 시작하지 못했습니다.");
     } finally {
       setStartingBackend(false);
     }
@@ -170,6 +174,9 @@ export default function SettingsPanel() {
               로컬 PC에서만 동작합니다 (배포 환경에서는 사용할 수 없음).
             </span>
           </div>
+        )}
+        {startBackendError && (
+          <p className="mt-2 text-xs" style={{ color: "var(--status-critical)" }}>{startBackendError}</p>
         )}
       </section>
 
