@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+:root {
+  /* 미니멀 프리시전 — 화이트 + 인디고, 헤어라인 위주 */
+  --surface-1: #ffffff;
+  --page-plane: #fafafa;
+  --text-primary: #0e1116;
+  --text-secondary: #62666f;
+  --text-muted: #9a9ca3;
+  --gridline: #eeeef0;
+  --baseline: #e7e7ea;
+  --border-ring: rgba(14, 17, 22, 0.1);
+
+  /* 포인트 컬러 — 인터랙션 요소에만 아껴서 사용 */
+  --accent: #2563eb;
+  --accent-contrast: #ffffff;
+  --accent-wash: rgba(37, 99, 235, 0.08);
+
+  /* 차트: 카테고리는 색으로 구분하지 않고 라벨로 구분 — 중립 톤 하나로 통일 */
+  --bar-neutral: #9599a1;
+  --bar-track: #f0f0f2;
+
+  /* 상태색 (의미 고정 — 브랜드 색과 무관) */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+
+  --background: var(--page-plane);
+  --foreground: var(--text-primary);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-1: #16181d;
+    --page-plane: #0b0c0f;
+    --text-primary: #f3f4f6;
+    --text-secondary: #9599a1;
+    --text-muted: #6b6f78;
+    --gridline: #24262c;
+    --baseline: #2c2f36;
+    --border-ring: rgba(255, 255, 255, 0.1);
+
+    --accent: #5b8def;
+    --accent-contrast: #06101f;
+    --accent-wash: rgba(91, 141, 239, 0.14);
+
+    --bar-neutral: #565a63;
+    --bar-track: #202329;
+
+    --status-good: #34d399;
+    --status-warning: #fbbf24;
+    --status-serious: #ec835a;
+    --status-critical: #f87171;
+
+    --background: var(--page-plane);
+    --foreground: var(--text-primary);
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+}

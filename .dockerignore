@@ -1,0 +1,6 @@
+web/node_modules
+web/.next
+.git
+.env
+data/tickets.db
+**/__pycache__

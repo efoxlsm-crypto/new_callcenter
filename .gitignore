@@ -1,0 +1,26 @@
+# 비밀 정보 — 절대 깃에 올리면 안 됨
+.env
+web/.env.local
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 로컬 실행 로그/PID 파일
+*.log
+pid_backend.txt
+pid_frontend.txt
+
+# 로컬 SQLite (Neon으로 이전 후에는 안 씀. 혹시 남아있어도 깃에는 올리지 않음)
+data/tickets.db
+
+# Node / Next.js
+web/node_modules/
+web/.next/
+web/tsc_check*.txt
+
+# OS
+Thumbs.db
+.DS_Store
