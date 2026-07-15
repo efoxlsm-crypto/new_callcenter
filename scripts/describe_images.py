@@ -22,18 +22,18 @@ import json
 import time
 from pathlib import Path
 
+from anthropic import Anthropic
 from dotenv import load_dotenv
-from groq import Groq
 from PIL import Image
 
-MAX_IMAGE_BYTES = 4 * 1024 * 1024  # Groq API 요청 크기 제한 보호용 (원본이 이보다 크면 축소)
+MAX_IMAGE_BYTES = 4 * 1024 * 1024  # API 요청 크기 제한 보호용 (원본이 이보다 크면 축소)
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 
 FAQ_PATH = ROOT / "data" / "faq.json"
 IMAGES_DIR = ROOT / "data" / "images"
-VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+VISION_MODEL = "claude-haiku-4-5"
 
 PROMPT = (
     "이 이미지는 체육시설 회원관리 프로그램(FMCS) 헬프데스크 화면 스크린샷입니다. "
@@ -59,24 +59,26 @@ def _encode_image(image_path: Path) -> tuple[str, str]:
 
 def describe_image(client, image_path: Path) -> str:
     ext, b64 = _encode_image(image_path)
-    response = client.chat.completions.create(
+    response = client.messages.create(
         model=VISION_MODEL,
+        max_tokens=512,
         messages=[
             {
                 "role": "user",
                 "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": f"image/{ext}", "data": b64}},
                     {"type": "text", "text": PROMPT},
-                    {"type": "image_url", "image_url": {"url": f"data:image/{ext};base64,{b64}"}},
                 ],
             }
         ],
     )
-    return response.choices[0].message.content.strip()
+    text = next(b.text for b in response.content if b.type == "text")
+    return text.strip()
 
 
 def main():
     data = json.loads(FAQ_PATH.read_text(encoding="utf-8"))
-    client = Groq(timeout=30.0, max_retries=2)
+    client = Anthropic(timeout=30.0, max_retries=2)
 
     todo = [f for f in data["faqs"] if f.get("image_file") and not f.get("image_description")]
     print(f"설명 생성 대상: {len(todo)}건 (이미 있는 항목은 건너뜀)")

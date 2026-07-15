@@ -217,7 +217,7 @@ export default function SettingsPanel() {
               </label>
 
               <label className="flex flex-col gap-1">
-                <span className="text-[11px] uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Groq API 키</span>
+                <span className="text-[11px] uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Anthropic API 키</span>
                 <input
                   type="password"
                   value={apiKeyInput}

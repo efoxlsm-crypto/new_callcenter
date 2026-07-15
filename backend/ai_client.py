@@ -1,18 +1,19 @@
-"""Groq API와 대화하는 부분.
+"""Anthropic(Claude) API와 대화하는 부분.
 
-한 번의 API 호출로 여러가지를 동시에 처리합니다 (Structured Outputs / JSON Schema strict 모드):
+한 번의 API 호출로 여러가지를 동시에 처리합니다 (Structured Outputs / JSON Schema 모드):
 1. 정리된(한눈에 보기 쉬운) 한국어 답변 생성 — 한줄요약 + 단계별 안내 + 참고사항 (FAQ 지식창고 기반)
 2. 답변 근거가 된 FAQ를 인용 → 그 FAQ에 딸린 실제 화면 스크린샷을 답변과 함께 표시 (backend/main.py에서 처리)
 3. 문의 카테고리 자동 분류 (예측 서비스 #1: 자동분류/라우팅)
 4. 장비(하드웨어) 관련 문의인지 판단 (예측 서비스 #3: 장비고장 사전예측의 재료)
+
+원래는 Groq를 사용했으나, 응답 속도/사용량 한도 문제로 Anthropic(Claude)로 교체했습니다.
 """
 import json
 import os
 from pathlib import Path
 
-import groq
+import anthropic
 from dotenv import set_key
-from groq import Groq
 
 from .knowledge import build_knowledge_context, category_ids
 
@@ -21,19 +22,21 @@ ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 # 모델/API 키는 설정 화면(UI)에서 바로 바꿀 수 있어야 해서, 모듈 상수가 아니라
 # 실행 중에 바꿔 끼울 수 있는 상태로 관리합니다. 바뀌면 .env 파일에도 저장해서
 # 서버를 재시작해도 유지됩니다.
+# claude-haiku-4-5: Claude 모델 중 가장 빠르고 저렴한 모델 — 실시간 채팅 응답 속도가
+# 중요한 헬프데스크 용도에 적합합니다. 더 높은 품질이 필요하면 설정 화면에서
+# claude-sonnet-5 / claude-opus-4-8 등으로 바꿀 수 있습니다.
 _state = {
-    "model": os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b"),
-    "api_key": os.environ.get("GROQ_API_KEY", ""),
+    "model": os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5"),
+    "api_key": os.environ.get("ANTHROPIC_API_KEY", ""),
 }
 
-# 무료 티어는 분당 토큰 한도(TPM)가 낮아서, 한도에 걸리면 SDK가 기본적으로
-# 오래(최대 몇 분) 재시도합니다. 채팅은 실시간 응답이 중요하므로 재시도를 1회로 줄이고
+# 재시도가 오래 걸리면 실시간 채팅 응답이 늦어지므로, 재시도를 1회로 줄이고
 # 타임아웃도 짧게 잡아서, 막히면 빨리 실패하고 사용자에게 안내할 수 있게 합니다.
-client = Groq(api_key=_state["api_key"] or None, timeout=20.0, max_retries=1)
+client = anthropic.Anthropic(api_key=_state["api_key"] or None, timeout=20.0, max_retries=1)
 
 RATE_LIMIT_MESSAGE = (
     "지금 문의가 몰려서 잠시 응답이 지연되고 있습니다. 10~20초 후 다시 시도해주세요. "
-    "(무료 API 사용량 한도 — 계속 반복되면 관리자에게 Groq 요금제 업그레이드를 문의하세요)"
+    "(API 사용량 한도 — 계속 반복되면 관리자에게 Anthropic 요금제/한도 상향을 문의하세요)"
 )
 
 
@@ -56,26 +59,20 @@ def update_ai_config(chat_model: str | None = None, api_key: str | None = None):
     global client
     if chat_model:
         _state["model"] = chat_model
-        set_key(str(ENV_PATH), "GROQ_MODEL", chat_model)
+        set_key(str(ENV_PATH), "ANTHROPIC_MODEL", chat_model)
     if api_key:
         _state["api_key"] = api_key
-        client = Groq(api_key=api_key, timeout=20.0, max_retries=1)
-        set_key(str(ENV_PATH), "GROQ_API_KEY", api_key)
+        client = anthropic.Anthropic(api_key=api_key, timeout=20.0, max_retries=1)
+        set_key(str(ENV_PATH), "ANTHROPIC_API_KEY", api_key)
     return get_ai_config()
 
 
-# 채팅 답변 생성에 쓸 수 없는 모델(음성 인식/TTS/분류 전용)은 선택 목록에서 제외합니다.
-_NON_CHAT_MODEL_HINTS = ("whisper", "orpheus", "prompt-guard", "tts")
-
-
 def list_available_models():
-    """이 API 키로 실제 사용 가능한 Groq 채팅 모델 목록을 조회합니다 (설정 화면의 모델 선택 드롭다운용)."""
+    """이 API 키로 실제 사용 가능한 Claude 모델 목록을 조회합니다 (설정 화면의 모델 선택 드롭다운용)."""
     try:
-        response = client.models.list()
-        ids = [m.id for m in response.data]
+        return sorted(m.id for m in client.models.list())
     except Exception:
         return []
-    return sorted(i for i in ids if not any(hint in i.lower() for hint in _NON_CHAT_MODEL_HINTS))
 
 
 class AIUnavailableError(Exception):
@@ -97,74 +94,71 @@ SYSTEM_HEADER = (
 )
 
 MAX_HISTORY_MESSAGES = 8  # 최근 4턴(질문+답변)까지만 대화 맥락으로 사용 (토큰 한도 보호)
+MAX_TOKENS = 2048  # JSON 답변 하나 분량으로 충분한 여유치
 
-RESPONSE_SCHEMA = {
-    "name": "respond_to_inquiry",
-    "strict": True,
-    "schema": {
-        "type": "object",
-        "properties": {
-            "category": {
-                "type": "string",
-                "enum": category_ids() + ["unknown"],
-                "description": "문의가 속하는 카테고리",
-            },
-            "is_hardware_issue": {
-                "type": "boolean",
-                "description": "IC카드리더기/바코드리더기/영수증프린터/키오스크 등 물리적 장비 문제인지 여부",
-            },
-            "device_type": {
-                "type": ["string", "null"],
-                "description": "하드웨어 문제일 경우 장비명 (예: 'IC카드리더기'), 아니면 null",
-            },
-            "is_gov_network_issue": {
-                "type": "boolean",
-                "description": (
-                    "행정공동망(관공서 연계망) 오류, 또는 국가유공자/장애인/기초생활수급자 등 "
-                    "감면 확인·조회가 안 된다는 문의인지 여부"
-                ),
-            },
-            "confidence": {
-                "type": "number",
-                "description": "이 분류/답변에 대한 확신도 (0.0~1.0)",
-            },
-            "summary": {
-                "type": "string",
-                "description": "결론을 담은 한 문장 (고객이 가장 먼저 보는 한줄 요약)",
-            },
-            "steps": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "단계별 조작 순서. 단계로 나눌 필요가 없으면 빈 배열([])",
-            },
-            "note": {
-                "type": ["string", "null"],
-                "description": "주의사항, 예외 상황, 또는 상담원 연결 안내. 없으면 null",
-            },
-            "matched_faq_ids": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "답변의 근거가 된 FAQ id 목록 (지식창고의 ID: 값 그대로)",
-            },
-            "needs_human_agent": {
-                "type": "boolean",
-                "description": "지식창고로 해결 불가능하여 사람 상담원 연결이 필요한지 여부",
-            },
+RESPONSE_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "category": {
+            "type": "string",
+            "enum": category_ids() + ["unknown"],
+            "description": "문의가 속하는 카테고리",
         },
-        "required": [
-            "category",
-            "is_hardware_issue",
-            "device_type",
-            "is_gov_network_issue",
-            "confidence",
-            "summary",
-            "steps",
-            "note",
-            "matched_faq_ids",
-            "needs_human_agent",
-        ],
-        "additionalProperties": False,
+        "is_hardware_issue": {
+            "type": "boolean",
+            "description": "IC카드리더기/바코드리더기/영수증프린터/키오스크 등 물리적 장비 문제인지 여부",
+        },
+        "device_type": {
+            "type": ["string", "null"],
+            "description": "하드웨어 문제일 경우 장비명 (예: 'IC카드리더기'), 아니면 null",
+        },
+        "is_gov_network_issue": {
+            "type": "boolean",
+            "description": (
+                "행정공동망(관공서 연계망) 오류, 또는 국가유공자/장애인/기초생활수급자 등 "
+                "감면 확인·조회가 안 된다는 문의인지 여부"
+            ),
+        },
+        "confidence": {
+            "type": "number",
+            "description": "이 분류/답변에 대한 확신도 (0.0~1.0)",
+        },
+        "summary": {
+            "type": "string",
+            "description": "결론을 담은 한 문장 (고객이 가장 먼저 보는 한줄 요약)",
+        },
+        "steps": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "단계별 조작 순서. 단계로 나눌 필요가 없으면 빈 배열([])",
+        },
+        "note": {
+            "type": ["string", "null"],
+            "description": "주의사항, 예외 상황, 또는 상담원 연결 안내. 없으면 null",
+        },
+        "matched_faq_ids": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "답변의 근거가 된 FAQ id 목록 (지식창고의 ID: 값 그대로)",
+        },
+        "needs_human_agent": {
+            "type": "boolean",
+            "description": "지식창고로 해결 불가능하여 사람 상담원 연결이 필요한지 여부",
+        },
     },
+    "required": [
+        "category",
+        "is_hardware_issue",
+        "device_type",
+        "is_gov_network_issue",
+        "confidence",
+        "summary",
+        "steps",
+        "note",
+        "matched_faq_ids",
+        "needs_human_agent",
+    ],
+    "additionalProperties": False,
 }
 
 
@@ -180,29 +174,31 @@ def ask(question: str, history: list[dict] | None = None) -> dict:
     prior_user_texts = [h["content"] for h in safe_history if h["role"] == "user"]
     retrieval_query = " ".join(prior_user_texts[-1:] + [question])
 
-    messages = [
-        {"role": "system", "content": SYSTEM_HEADER},
-        {"role": "system", "content": f"[지식창고]\n{build_knowledge_context(retrieval_query)}"},
-        *safe_history,
-        {"role": "user", "content": question},
+    system = [
+        {"type": "text", "text": SYSTEM_HEADER},
+        {"type": "text", "text": f"[지식창고]\n{build_knowledge_context(retrieval_query)}"},
     ]
+    messages = [*safe_history, {"role": "user", "content": question}]
 
     # 모델이 가끔 JSON 스키마를 어기는 답변을 만들 때가 있어(특히 작은/저렴한 모델일수록),
     # 한 번은 자동으로 재시도합니다 — 그래도 안 되면 사람 상담원 연결로 안내합니다.
     last_error: Exception | None = None
     for attempt in range(2):
         try:
-            response = client.chat.completions.create(
+            response = client.messages.create(
                 model=_state["model"],
+                max_tokens=MAX_TOKENS,
+                system=system,
                 messages=messages,
-                response_format={"type": "json_schema", "json_schema": RESPONSE_SCHEMA},
+                output_config={"format": {"type": "json_schema", "schema": RESPONSE_JSON_SCHEMA}},
             )
-            return json.loads(response.choices[0].message.content)
-        except groq.RateLimitError as e:
+            text = next(b.text for b in response.content if b.type == "text")
+            return json.loads(text)
+        except anthropic.RateLimitError as e:
             raise AIUnavailableError(RATE_LIMIT_MESSAGE) from e
-        except (groq.APITimeoutError, groq.APIConnectionError) as e:
+        except (anthropic.APITimeoutError, anthropic.APIConnectionError) as e:
             raise AIUnavailableError("AI 서버 응답이 너무 늦어 요청을 취소했습니다. 다시 시도해주세요.") from e
-        except groq.BadRequestError as e:
+        except (anthropic.BadRequestError, StopIteration, json.JSONDecodeError) as e:
             last_error = e
             continue
 

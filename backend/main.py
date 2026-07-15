@@ -21,7 +21,7 @@ from .knowledge import CATEGORIES, category_name, faq_by_id, get_system_info, im
 
 # 참고용 표시 전용 (scripts/describe_images.py의 VISION_MODEL과 동일해야 함) — 실제로 호출되는
 # 곳은 배치 스크립트뿐이라 여기서는 설정 화면에 보여주기 위한 상수로만 둡니다.
-VISION_MODEL_DISPLAY = "meta-llama/llama-4-scout-17b-16e-instruct"
+VISION_MODEL_DISPLAY = "claude-haiku-4-5"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
