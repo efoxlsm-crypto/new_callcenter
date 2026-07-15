@@ -133,8 +133,76 @@ export async function sendFeedback(ticketId: number, helpful: boolean): Promise<
   if (!res.ok) throw new Error("피드백을 저장하지 못했습니다.");
 }
 
-export async function fetchDashboardStats(): Promise<DashboardStats> {
-  const res = await fetch(`${API_URL}/dashboard/stats`, { cache: "no-store" });
+export async function fetchDashboardStats(siteId?: string): Promise<DashboardStats> {
+  const url = siteId ? `${API_URL}/dashboard/stats?site_id=${encodeURIComponent(siteId)}` : `${API_URL}/dashboard/stats`;
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error("대시보드 정보를 불러오지 못했습니다.");
+  return res.json();
+}
+
+export type AiInfo = {
+  chat_model: string;
+  vision_model: string;
+  has_api_key: boolean;
+  api_key_masked: string;
+};
+
+export type SystemInfo = {
+  product: string;
+  vendor: string;
+  support_phone: string;
+  support_site: string;
+};
+
+export type SettingsResponse = { ai: AiInfo; system_info: SystemInfo };
+
+export async function fetchSettings(): Promise<SettingsResponse> {
+  const res = await fetch(`${API_URL}/settings`, { cache: "no-store" });
+  if (!res.ok) throw new Error("설정 정보를 불러오지 못했습니다.");
+  return res.json();
+}
+
+export async function updateSystemInfo(info: SystemInfo): Promise<SystemInfo> {
+  const res = await fetch(`${API_URL}/settings/system-info`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(info),
+  });
+  if (!res.ok) throw new Error("설정을 저장하지 못했습니다.");
+  const data = await res.json();
+  return data.system_info;
+}
+
+export async function fetchAvailableModels(): Promise<string[]> {
+  const res = await fetch(`${API_URL}/settings/ai/models`, { cache: "no-store" });
+  if (!res.ok) throw new Error("모델 목록을 불러오지 못했습니다.");
+  const data = await res.json();
+  return data.models;
+}
+
+export async function updateAiConfig(update: { chat_model?: string; api_key?: string }): Promise<AiInfo> {
+  const res = await fetch(`${API_URL}/settings/ai`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(update),
+  });
+  if (!res.ok) throw new Error("AI 설정을 저장하지 못했습니다.");
+  const data = await res.json();
+  return data.ai;
+}
+
+// 아래 두 함수는 FastAPI 백엔드가 아니라, 이 Next.js 앱 자신의 API 라우트를 호출합니다
+// (서버 실행/상태 확인은 브라우저가 아니라 프론트엔드 서버 프로세스에서 처리해야 하기 때문).
+export type ServerStatus = { frontend: boolean; backend: boolean };
+
+export async function fetchServerStatus(): Promise<ServerStatus> {
+  const res = await fetch("/api/server-status", { cache: "no-store" });
+  if (!res.ok) throw new Error("서버 상태를 확인하지 못했습니다.");
+  return res.json();
+}
+
+export async function startBackendServer(): Promise<{ ok: boolean; already_running?: boolean }> {
+  const res = await fetch("/api/start-backend", { method: "POST" });
+  if (!res.ok) throw new Error("백엔드 서버를 시작하지 못했습니다.");
   return res.json();
 }

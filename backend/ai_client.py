@@ -8,23 +8,74 @@
 """
 import json
 import os
+from pathlib import Path
 
 import groq
+from dotenv import set_key
 from groq import Groq
 
 from .knowledge import build_knowledge_context, category_ids
 
-MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
+ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+
+# 모델/API 키는 설정 화면(UI)에서 바로 바꿀 수 있어야 해서, 모듈 상수가 아니라
+# 실행 중에 바꿔 끼울 수 있는 상태로 관리합니다. 바뀌면 .env 파일에도 저장해서
+# 서버를 재시작해도 유지됩니다.
+_state = {
+    "model": os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b"),
+    "api_key": os.environ.get("GROQ_API_KEY", ""),
+}
 
 # 무료 티어는 분당 토큰 한도(TPM)가 낮아서, 한도에 걸리면 SDK가 기본적으로
 # 오래(최대 몇 분) 재시도합니다. 채팅은 실시간 응답이 중요하므로 재시도를 1회로 줄이고
 # 타임아웃도 짧게 잡아서, 막히면 빨리 실패하고 사용자에게 안내할 수 있게 합니다.
-client = Groq(timeout=20.0, max_retries=1)
+client = Groq(api_key=_state["api_key"] or None, timeout=20.0, max_retries=1)
 
 RATE_LIMIT_MESSAGE = (
     "지금 문의가 몰려서 잠시 응답이 지연되고 있습니다. 10~20초 후 다시 시도해주세요. "
     "(무료 API 사용량 한도 — 계속 반복되면 관리자에게 Groq 요금제 업그레이드를 문의하세요)"
 )
+
+
+def get_ai_config():
+    """설정 화면에 보여줄 AI 설정. API 키는 원문 그대로 돌려주지 않고 뒷 4자리만 보여줍니다."""
+    key = _state["api_key"] or ""
+    if len(key) >= 4:
+        masked = f"{'*' * max(len(key) - 4, 4)}{key[-4:]}"
+    else:
+        masked = ""
+    return {
+        "chat_model": _state["model"],
+        "has_api_key": bool(key),
+        "api_key_masked": masked,
+    }
+
+
+def update_ai_config(chat_model: str | None = None, api_key: str | None = None):
+    """설정 화면에서 모델/API 키를 바꾸면 즉시 반영하고 .env에도 저장합니다 (서버 재시작 불필요)."""
+    global client
+    if chat_model:
+        _state["model"] = chat_model
+        set_key(str(ENV_PATH), "GROQ_MODEL", chat_model)
+    if api_key:
+        _state["api_key"] = api_key
+        client = Groq(api_key=api_key, timeout=20.0, max_retries=1)
+        set_key(str(ENV_PATH), "GROQ_API_KEY", api_key)
+    return get_ai_config()
+
+
+# 채팅 답변 생성에 쓸 수 없는 모델(음성 인식/TTS/분류 전용)은 선택 목록에서 제외합니다.
+_NON_CHAT_MODEL_HINTS = ("whisper", "orpheus", "prompt-guard", "tts")
+
+
+def list_available_models():
+    """이 API 키로 실제 사용 가능한 Groq 채팅 모델 목록을 조회합니다 (설정 화면의 모델 선택 드롭다운용)."""
+    try:
+        response = client.models.list()
+        ids = [m.id for m in response.data]
+    except Exception:
+        return []
+    return sorted(i for i in ids if not any(hint in i.lower() for hint in _NON_CHAT_MODEL_HINTS))
 
 
 class AIUnavailableError(Exception):
@@ -131,7 +182,7 @@ def ask(question: str, history: list[dict] | None = None) -> dict:
 
     try:
         response = client.chat.completions.create(
-            model=MODEL,
+            model=_state["model"],
             messages=[
                 {"role": "system", "content": SYSTEM_HEADER},
                 {"role": "system", "content": f"[지식창고]\n{build_knowledge_context(retrieval_query)}"},

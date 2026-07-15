@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import { sendChat, sendFeedback, fetchSites, type ChatResponse, type HistoryItem } from "@/lib/api";
 import { CategoryIcon } from "@/lib/categoryIcons";
 import {
@@ -46,7 +46,12 @@ function buildHistory(messages: Message[]): HistoryItem[] {
   return history.slice(-MAX_HISTORY_TURNS * 2);
 }
 
-export default function ChatPanel({ onTicketAdded }: { onTicketAdded: () => void }) {
+export type ChatPanelHandle = { sendQuestion: (question: string) => void };
+
+const ChatPanel = forwardRef<ChatPanelHandle, { onTicketAdded: () => void }>(function ChatPanel(
+  { onTicketAdded },
+  ref
+) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [sites, setSites] = useState<string[]>([]);
@@ -83,8 +88,8 @@ export default function ChatPanel({ onTicketAdded }: { onTicketAdded: () => void
     setAddingNewSite(false);
   }
 
-  async function handleSend() {
-    const text = input.trim();
+  async function handleSend(override?: string) {
+    const text = (override ?? input).trim();
     if (!text || sending) return;
 
     // 히스토리는 이번 질문을 보내기 "직전"까지의 대화만 포함해야 합니다.
@@ -117,6 +122,10 @@ export default function ChatPanel({ onTicketAdded }: { onTicketAdded: () => void
     }
   }
 
+  useImperativeHandle(ref, () => ({ sendQuestion: (question: string) => handleSend(question) }), [
+    handleSend,
+  ]);
+
   async function handleFeedback(messageId: number, ticketId: number, helpful: boolean) {
     setMessages((prev) =>
       prev.map((m) => (m.id === messageId ? { ...m, feedback: helpful ? "up" : "down" } : m))
@@ -144,9 +153,15 @@ export default function ChatPanel({ onTicketAdded }: { onTicketAdded: () => void
       </div>
 
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
-        {messages.map((m) => (
-          <ChatBubble key={m.id} message={m} onFeedback={handleFeedback} />
-        ))}
+        {messages.length === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+              오른쪽의 자주 묻는 질문을 눌러보거나, 아래에 직접 질문을 입력해보세요.
+            </p>
+          </div>
+        ) : (
+          messages.map((m) => <ChatBubble key={m.id} message={m} onFeedback={handleFeedback} />)
+        )}
       </div>
 
       <div className="flex flex-col gap-2 border-t p-4" style={{ borderColor: "var(--border-ring)" }}>
@@ -163,7 +178,7 @@ export default function ChatPanel({ onTicketAdded }: { onTicketAdded: () => void
               className="w-40 rounded border px-2 py-2 text-sm outline-none focus:ring-1"
               style={{ borderColor: "var(--border-ring)", color: "var(--text-primary)", background: "var(--surface-1)" }}
             >
-              <option value="">업장 선택 안함</option>
+              <option value="">공통</option>
               {sites.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
@@ -227,7 +242,7 @@ export default function ChatPanel({ onTicketAdded }: { onTicketAdded: () => void
             style={{ borderColor: "var(--border-ring)", color: "var(--text-primary)" }}
           />
           <button
-            onClick={handleSend}
+            onClick={() => handleSend()}
             disabled={sending}
             className="rounded px-5 py-2 text-sm font-semibold transition disabled:opacity-50"
             style={{ background: "var(--accent)", color: "var(--accent-contrast)" }}
@@ -238,7 +253,9 @@ export default function ChatPanel({ onTicketAdded }: { onTicketAdded: () => void
       </div>
     </div>
   );
-}
+});
+
+export default ChatPanel;
 
 function ChatBubble({
   message,

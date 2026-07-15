@@ -118,51 +118,6 @@ def fetch_all_tickets():
     return [dict(r) for r in rows]
 
 
-def fetch_unhelpful_tickets(limit=5):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT * FROM tickets WHERE helpful = FALSE ORDER BY created_at DESC LIMIT %s",
-        (limit,),
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-def fetch_low_confidence_tickets(threshold=0.5, limit=5):
-    """AI 스스로 확신도가 낮다고 판단한 답변 목록.
-
-    고객이 직접 '도움안됨'을 눌러야만 알 수 있는 fetch_unhelpful_tickets와 달리,
-    고객 피드백 없이도 지식 공백(아직 FAQ로 커버되지 않는 질문 유형)을 미리 발견하기 위한 것.
-    """
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT * FROM tickets WHERE confidence IS NOT NULL AND confidence < %s "
-        "ORDER BY created_at DESC LIMIT %s",
-        (threshold, limit),
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-def count_low_confidence_tickets(threshold=0.5):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT COUNT(*) AS n FROM tickets WHERE confidence IS NOT NULL AND confidence < %s",
-        (threshold,),
-    )
-    n = cur.fetchone()["n"]
-    cur.close()
-    conn.close()
-    return n
-
-
 def count_tickets():
     conn = get_conn()
     cur = conn.cursor()

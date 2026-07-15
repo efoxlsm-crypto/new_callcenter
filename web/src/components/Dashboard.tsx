@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useImperativeHandle, forwardRef } from "react";
-import { fetchDashboardStats, fetchCategories, type DashboardStats, type Category } from "@/lib/api";
+import { fetchDashboardStats, fetchCategories, fetchSites, type DashboardStats, type Category } from "@/lib/api";
 import { CategoryIcon } from "@/lib/categoryIcons";
 import {
   IconMessage,
@@ -14,6 +14,7 @@ import {
   IconHelpCircle,
   IconThumbsUp,
   IconThumbsDown,
+  IconBuilding,
 } from "@/components/icons";
 
 export type DashboardHandle = { refresh: () => void };
@@ -23,40 +24,70 @@ const WEEKDAY_ORDER = ["월", "화", "수", "목", "금", "토", "일"];
 const Dashboard = forwardRef<DashboardHandle>(function Dashboard(_props, ref) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [sites, setSites] = useState<string[]>([]);
+  const [siteId, setSiteId] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [s, c] = await Promise.all([fetchDashboardStats(), fetchCategories()]);
+      const [s, c] = await Promise.all([fetchDashboardStats(siteId), fetchCategories()]);
       setStats(s);
       setCategories(c);
       setError(null);
     } catch {
       setError("대시보드를 불러오지 못했습니다. 백엔드 서버(포트 8000)가 켜져 있는지 확인해주세요.");
     }
-  }, []);
+  }, [siteId]);
 
   useImperativeHandle(ref, () => ({ refresh: load }), [load]);
+
+  useEffect(() => {
+    fetchSites().then(setSites).catch(() => {});
+  }, []);
 
   useEffect(() => {
     load();
   }, [load]);
 
+  const siteFilter = (
+    <label className="flex items-center gap-2 rounded border px-3 py-2" style={{ borderColor: "var(--border-ring)", background: "var(--surface-1)" }}>
+      <IconBuilding size={16} style={{ color: "var(--text-secondary)" }} />
+      <span className="text-[11px] uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>업장</span>
+      <select
+        value={siteId}
+        onChange={(e) => setSiteId(e.target.value)}
+        className="flex-1 rounded border-0 bg-transparent text-sm outline-none"
+        style={{ color: "var(--text-primary)" }}
+      >
+        <option value="">공통 (전체 업장 합산)</option>
+        {sites.map((s) => (
+          <option key={s} value={s}>{s}</option>
+        ))}
+      </select>
+    </label>
+  );
+
   if (error) {
     return (
-      <Card title="운영 현황">
-        <p className="text-sm" style={{ color: "var(--status-critical)" }}>
-          {error}
-        </p>
-      </Card>
+      <div className="flex flex-col gap-4">
+        {siteFilter}
+        <Card title="운영 현황">
+          <p className="text-sm" style={{ color: "var(--status-critical)" }}>
+            {error}
+          </p>
+        </Card>
+      </div>
     );
   }
 
   if (!stats) {
     return (
-      <Card title="운영 현황">
-        <p className="text-sm" style={{ color: "var(--text-muted)" }}>불러오는 중...</p>
-      </Card>
+      <div className="flex flex-col gap-4">
+        {siteFilter}
+        <Card title="운영 현황">
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>불러오는 중...</p>
+        </Card>
+      </div>
     );
   }
 
@@ -68,6 +99,8 @@ const Dashboard = forwardRef<DashboardHandle>(function Dashboard(_props, ref) {
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto pr-1">
+      {siteFilter}
+
       <div className="grid grid-cols-2 gap-4">
         <StatTile label="총 문의 건수" value={stats.total_tickets} icon={<IconMessage size={18} />} />
         <StatTile
@@ -171,7 +204,7 @@ const Dashboard = forwardRef<DashboardHandle>(function Dashboard(_props, ref) {
 
           <div className="border-t pt-3" style={{ borderColor: "var(--border-ring)" }}>
             <p className="mb-2 text-[10.5px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-              동시다발 장비 이슈 (시스템 전반 장애 의심)
+              동시다발 장비 이슈 (시스템 전반 장애 의심 · 항상 전체 업장 기준)
             </p>
             {stats.multi_site_alerts.length === 0 ? (
               <Empty text="동시다발 이슈 없음" />

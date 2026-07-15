@@ -40,6 +40,31 @@ def load_faq():
     return _faq_cache
 
 
+def get_system_info():
+    """설정 화면에 보여줄 제품/기술지원 정보 (faq.json 최상단 필드)."""
+    data = load_faq()
+    return {
+        "product": data.get("product", ""),
+        "vendor": data.get("vendor", ""),
+        "support_phone": data.get("support_phone", ""),
+        "support_site": data.get("support_site", ""),
+    }
+
+
+def update_system_info(product, vendor, support_phone, support_site):
+    """설정 화면에서 제품/기술지원 정보를 수정하면 faq.json에 바로 저장하고,
+    서버 재시작 없이 다음 질문부터 바로 반영되도록 캐시를 갱신합니다."""
+    global _faq_cache
+    data = load_faq()
+    data["product"] = product
+    data["vendor"] = vendor
+    data["support_phone"] = support_phone
+    data["support_site"] = support_site
+    FAQ_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    _faq_cache = data
+    return get_system_info()
+
+
 def category_ids():
     return [c["id"] for c in CATEGORIES]
 

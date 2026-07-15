@@ -17,7 +17,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import ai_client, db, gov_network_status, predict
-from .knowledge import CATEGORIES, category_name, faq_by_id, image_file_exists
+from .knowledge import CATEGORIES, category_name, faq_by_id, get_system_info, image_file_exists, update_system_info
+
+# 참고용 표시 전용 (scripts/describe_images.py의 VISION_MODEL과 동일해야 함) — 실제로 호출되는
+# 곳은 배치 스크립트뿐이라 여기서는 설정 화면에 보여주기 위한 상수로만 둡니다.
+VISION_MODEL_DISPLAY = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -57,6 +61,18 @@ class FeedbackRequest(BaseModel):
     helpful: bool
 
 
+class SystemInfoUpdate(BaseModel):
+    product: str
+    vendor: str
+    support_phone: str
+    support_site: str
+
+
+class AiConfigUpdate(BaseModel):
+    chat_model: str | None = None
+    api_key: str | None = None
+
+
 @app.get("/categories")
 def categories():
     return CATEGORIES
@@ -65,6 +81,31 @@ def categories():
 @app.get("/sites")
 def sites():
     return db.fetch_sites()
+
+
+@app.get("/settings")
+def get_settings():
+    return {
+        "ai": {**ai_client.get_ai_config(), "vision_model": VISION_MODEL_DISPLAY},
+        "system_info": get_system_info(),
+    }
+
+
+@app.get("/settings/ai/models")
+def get_available_models():
+    return {"models": ai_client.list_available_models()}
+
+
+@app.put("/settings/ai")
+def put_ai_config(req: AiConfigUpdate):
+    updated = ai_client.update_ai_config(chat_model=req.chat_model, api_key=req.api_key)
+    return {"ok": True, "ai": {**updated, "vision_model": VISION_MODEL_DISPLAY}}
+
+
+@app.put("/settings/system-info")
+def put_system_info(req: SystemInfoUpdate):
+    updated = update_system_info(req.product, req.vendor, req.support_phone, req.support_site)
+    return {"ok": True, "system_info": updated}
 
 
 @app.post("/chat")
@@ -135,8 +176,15 @@ def feedback(req: FeedbackRequest):
 
 
 @app.get("/dashboard/stats")
-def dashboard_stats():
-    tickets = db.fetch_all_tickets()
+def dashboard_stats(site_id: str | None = None):
+    """site_id를 주면 그 업장 문의만으로 통계를 냅니다. 안 주면("공통") 전체 업장 합산입니다.
+
+    단, multi_site_alerts(동시다발 장비 이슈)는 여러 업장에 걸친 데이터가 있어야 의미가 있는
+    지표라서 업장 필터와 무관하게 항상 전체 업장 기준으로 보여줍니다.
+    """
+    all_tickets = db.fetch_all_tickets()
+    tickets = [t for t in all_tickets if not site_id or t["site_id"] == site_id]
+
     category_counts: dict[str, int] = {}
     for t in tickets:
         category_counts[t["category"]] = category_counts.get(t["category"], 0) + 1
@@ -145,13 +193,16 @@ def dashboard_stats():
     not_helpful_count = sum(1 for t in tickets if t["helpful"] == 0)
 
     LOW_CONFIDENCE_THRESHOLD = 0.5
+    low_confidence_tickets = [
+        t for t in tickets if t["confidence"] is not None and t["confidence"] < LOW_CONFIDENCE_THRESHOLD
+    ]
 
     return {
         "total_tickets": len(tickets),
         "category_counts": category_counts,
-        "call_volume_forecast": predict.call_volume_forecast(),
-        "equipment_risk_warnings": predict.equipment_risk_warnings(),
-        "category_trends": predict.category_trends(),
+        "call_volume_forecast": predict.call_volume_forecast(site_id),
+        "equipment_risk_warnings": predict.equipment_risk_warnings(site_id),
+        "category_trends": predict.category_trends(site_id),
         "multi_site_alerts": predict.multi_site_device_alerts(),
         "needs_human_count": sum(1 for t in tickets if t["needs_human_agent"]),
         "feedback": {
@@ -159,12 +210,13 @@ def dashboard_stats():
             "not_helpful_count": not_helpful_count,
             "unhelpful_tickets": [
                 {"id": t["id"], "question": t["question"], "answer_summary": t["answer_summary"], "category": t["category"]}
-                for t in db.fetch_unhelpful_tickets(limit=5)
-            ],
+                for t in tickets
+                if t["helpful"] == 0
+            ][:5],
         },
         "knowledge_gaps": {
             "threshold": LOW_CONFIDENCE_THRESHOLD,
-            "count": db.count_low_confidence_tickets(LOW_CONFIDENCE_THRESHOLD),
+            "count": len(low_confidence_tickets),
             "tickets": [
                 {
                     "id": t["id"],
@@ -173,7 +225,7 @@ def dashboard_stats():
                     "category": t["category"],
                     "confidence": t["confidence"],
                 }
-                for t in db.fetch_low_confidence_tickets(LOW_CONFIDENCE_THRESHOLD, limit=5)
+                for t in low_confidence_tickets[:5]
             ],
         },
     }

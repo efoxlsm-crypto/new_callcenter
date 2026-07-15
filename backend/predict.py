@@ -27,14 +27,21 @@ MULTI_SITE_WINDOW_HOURS = 48
 MULTI_SITE_MIN_SITES = 3
 
 
-def call_volume_forecast():
+def _filter_by_site(tickets, site_id):
+    if not site_id:
+        return tickets
+    return [t for t in tickets if t["site_id"] == site_id]
+
+
+def call_volume_forecast(site_id=None):
     """요일별 문의량을 계산합니다. (상담량 예측 #1)
 
     데이터가 1건이라도 있으면 바로 그래프를 그릴 수 있도록 값을 돌려줍니다.
     다만 최소 건수(MIN_TICKETS_FOR_VOLUME_FORECAST) 미만이면 "참고용" 상태로 표시해서,
     아직 요일 패턴을 신뢰하기엔 이르다는 걸 화면에서 알 수 있게 합니다.
+    site_id를 주면 그 업장의 문의만으로 계산합니다 (기본은 전체 업장 합산 = "공통").
     """
-    tickets = fetch_all_tickets()
+    tickets = _filter_by_site(fetch_all_tickets(), site_id)
     if len(tickets) == 0:
         return {
             "status": "insufficient_data",
@@ -73,9 +80,9 @@ def call_volume_forecast():
     }
 
 
-def equipment_risk_warnings():
+def equipment_risk_warnings(site_id=None):
     """같은 업장(site)에서 같은 장비 관련 문의가 짧은 기간에 반복되면 경고합니다. (장비고장 사전예측)"""
-    tickets = fetch_all_tickets()
+    tickets = _filter_by_site(fetch_all_tickets(), site_id)
     cutoff = datetime.now() - timedelta(days=EQUIPMENT_RISK_WINDOW_DAYS)
 
     recent_hw_tickets = [
@@ -109,13 +116,13 @@ def equipment_risk_warnings():
     return warnings
 
 
-def category_trends():
+def category_trends(site_id=None):
     """카테고리별 문의량이 평소(베이스라인) 대비 급증했는지 감지합니다. (트렌드/이상탐지 #1)
 
     "최근 N일"의 하루 평균 문의량을, 그 이전 "베이스라인 기간"의 하루 평균과 비교합니다.
     베이스라인이 아예 없는(그동안 문의가 없던) 새 유형은 최근 건수만으로 판단합니다.
     """
-    tickets = fetch_all_tickets()
+    tickets = _filter_by_site(fetch_all_tickets(), site_id)
     now = datetime.now()
     recent_cutoff = now - timedelta(days=TREND_RECENT_DAYS)
     baseline_cutoff = now - timedelta(days=TREND_BASELINE_DAYS)
